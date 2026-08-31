@@ -30,29 +30,47 @@ export const CompetencyHeatmapPage: React.FC = () => {
     return 'bg-rose-600 text-white font-bold';
   };
 
+  const handleExportCSV = () => {
+    if (!heatmap) return;
+    const headers = ['Department', ...competencies];
+    const rows = departments.map(dept => [
+      `"${dept}"`,
+      ...competencies.map(comp => heatmap[dept]?.[comp] || 50)
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `MoSPI_Competency_Heatmap_Matrix_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
-    <div className="space-y-6 text-left">
+    <div className="space-y-6 text-left max-w-7xl mx-auto">
       {/* Header */}
-      <div className="bg-slate-900 text-white p-6 rounded-2xl border border-slate-800 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+      <div className="bg-slate-900 text-white p-6 rounded-lg border border-slate-800 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center space-x-2">
-            <span className="bg-amber-500/20 text-amber-300 text-xs font-semibold px-2.5 py-0.5 rounded-full border border-amber-500/30">
+            <span className="bg-blue-900/60 text-blue-300 text-xs font-semibold px-2.5 py-0.5 rounded border border-blue-700 font-mono">
               Administrative Competency Heatmap
             </span>
             <span className="text-xs text-slate-400 font-mono">• Cross-Departmental Matrix</span>
           </div>
-          <h1 className="text-2xl font-bold text-white mt-1">Department vs Competency Heatmap</h1>
+          <h1 className="text-2xl font-bold text-white mt-1">Department vs Competency Heatmap Matrix</h1>
           <p className="text-xs text-slate-300">
             Visualizing skill strength intensity across divisions to identify systemic workforce capability gaps.
           </p>
         </div>
 
-        {/* Intensity Legend */}
-        <div className="flex items-center space-x-2 text-xs bg-slate-800 p-2.5 rounded-xl border border-slate-700">
-          <span className="text-slate-400">Score Range:</span>
-          <span className="bg-rose-600 text-white px-2 py-0.5 rounded font-mono text-[10px]">&lt;45% Critical</span>
-          <span className="bg-amber-100 text-amber-900 px-2 py-0.5 rounded font-mono text-[10px]">60-69% Mod</span>
-          <span className="bg-emerald-500 text-white px-2 py-0.5 rounded font-mono text-[10px]">80%+ High</span>
+        <div className="flex items-center space-x-3">
+          <button
+            onClick={handleExportCSV}
+            className="bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold px-3.5 py-2 rounded-lg flex items-center gap-1.5 transition shadow-sm"
+          >
+            <span>Export Heatmap (CSV)</span>
+          </button>
         </div>
       </div>
 

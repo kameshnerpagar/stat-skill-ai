@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from app.database import Base, engine, SessionLocal
-from app.models import User, Department, Competency, UserCompetency, Course, Enrollment, SkillGap
+from app.models import User, Department, Competency, UserCompetency, Course, Enrollment, SkillGap, QuizAttempt
 from app.services.igot_service import MockIGOTService
 from app.services.competency_service import CompetencyService
 
@@ -57,8 +57,66 @@ def seed_db():
             overall_competency_score=88.5
         )
 
-        db.add(official_user)
-        db.add(admin_user)
+        nat_accts = db.query(Department).filter(Department.name == "National Accounts Division").first()
+        econ_dept = db.query(Department).filter(Department.name == "Economic Statistics Division").first()
+        soc_dept = db.query(Department).filter(Department.name == "Social Statistics Division").first()
+        surv_dept = db.query(Department).filter(Department.name == "Survey Operations Division").first()
+
+        officer_2 = User(
+            email="vikram.malhotra@statskill.gov.in",
+            full_name="Vikram Malhotra",
+            role="official",
+            designation="Senior Statistical Officer",
+            department_id=nat_accts.id if nat_accts else data_analytics_dept.id,
+            experience_years=7.5,
+            education="M.A. Economics",
+            current_assignment="Gross Value Added (GVA) & GDP Compilation Pipeline",
+            career_goal="Lead Economic Modeling and National Accounts",
+            overall_competency_score=74.2
+        )
+
+        officer_3 = User(
+            email="priya.patel@statskill.gov.in",
+            full_name="Priya Patel",
+            role="official",
+            designation="Assistant Director",
+            department_id=econ_dept.id if econ_dept else data_analytics_dept.id,
+            experience_years=6.0,
+            education="M.Stat. Indian Statistical Institute",
+            current_assignment="Index of Industrial Production (IIP) Retail Basket Automation",
+            career_goal="Build High-Frequency Price Index Dashboards",
+            overall_competency_score=71.8
+        )
+
+        officer_4 = User(
+            email="suresh.kumar@statskill.gov.in",
+            full_name="Suresh Kumar",
+            role="official",
+            designation="Field Survey Officer",
+            department_id=surv_dept.id if surv_dept else data_analytics_dept.id,
+            experience_years=9.0,
+            education="B.Sc. Mathematics & Statistics",
+            current_assignment="NSS Household Survey Field Audit & CAPI Data Collection",
+            career_goal="Master Digital Field Collection & Mobile GIS",
+            overall_competency_score=63.4,
+            intervention_flagged=1,
+            intervention_notes="Requires immediate upskilling in Python & Cloud Data Security"
+        )
+
+        officer_5 = User(
+            email="meera.reddy@statskill.gov.in",
+            full_name="Meera Reddy",
+            role="official",
+            designation="Deputy Director (SDG Cell)",
+            department_id=soc_dept.id if soc_dept else data_analytics_dept.id,
+            experience_years=11.0,
+            education="Ph.D. Applied Statistics",
+            current_assignment="National Indicator Framework (NIF) UN SDG Monitoring",
+            career_goal="Head Social & Gender Statistical Dissemination",
+            overall_competency_score=78.5
+        )
+
+        db.add_all([official_user, admin_user, officer_2, officer_3, officer_4, officer_5])
         db.commit()
 
         print("[Database Seed] Seeding competencies across 4 domains...")
@@ -113,73 +171,27 @@ def seed_db():
 
         db.commit()
 
-        print("[Database Seed] Setting initial user competency scores for Ananya Sharma...")
-        # Exact baseline scores for Ananya Sharma matching prompt
-        # Statistical: 82% average
-        # Technical: 61% average (Python 52, Cloud 41, Data Privacy 48, SQL 65, Data Viz 72)
-        # Digital Governance: 48% average
-        # Behavioural: 72% average
+        print("[Database Seed] Setting initial user competency scores...")
         score_mapping = {
-            # Statistical (Avg ~82)
-            "Survey Design": 85.0,
-            "Sampling Methods": 82.0,
-            "National Accounts": 80.0,
-            "Price Statistics": 78.0,
-            "Labour Statistics": 84.0,
-            "Agricultural Statistics": 80.0,
-            "Industrial Statistics": 81.0,
-            "SDG Indicators": 83.0,
-            "Metadata Standards": 85.0,
-            "Data Quality Frameworks": 82.0,
-
-            # Technical (Avg ~61)
-            "Python": 52.0,
-            "R": 60.0,
-            "SQL": 65.0,
-            "Stata": 55.0,
-            "SPSS": 50.0,
-            "SAS": 48.0,
-            "GIS": 55.0,
-            "Data Visualization": 72.0,
-            "AI/ML": 45.0,
-            "Cloud Computing": 41.0,
-            "APIs": 68.0,
-            "Open Data": 70.0,
-
-            # Digital Governance (Avg ~48)
-            "Cybersecurity": 50.0,
-            "Data Privacy": 48.0,
-            "Digital Signatures": 45.0,
-            "Government Cloud": 42.0,
-            "Digital Public Infrastructure": 55.0,
-
-            # Behavioural (Avg ~72)
-            "Leadership": 70.0,
-            "Communication": 75.0,
-            "Project Management": 72.0,
-            "Ethics": 78.0,
-            "Decision Making": 68.0,
-            "Change Management": 69.0
+            "Survey Design": 85.0, "Sampling Methods": 82.0, "National Accounts": 80.0, "Price Statistics": 78.0,
+            "Python": 52.0, "R": 60.0, "SQL": 65.0, "GIS": 55.0, "Data Visualization": 72.0, "AI/ML": 45.0,
+            "Cloud Computing": 41.0, "Data Privacy": 48.0, "Leadership": 70.0, "Ethics": 78.0
         }
 
         all_comps = db.query(Competency).all()
-        for comp in all_comps:
-            cur_score = score_mapping.get(comp.name, 60.0)
-            req_score = 80.0
-            level = "Intermediate"
-            if cur_score >= 80:
-                level = "Advanced"
-            elif cur_score < 50:
-                level = "Beginner"
-
-            uc = UserCompetency(
-                user_id=official_user.id,
-                competency_id=comp.id,
-                current_score=cur_score,
-                required_score=req_score,
-                level=level
-            )
-            db.add(uc)
+        for u in [official_user, officer_2, officer_3, officer_4, officer_5]:
+            for comp in all_comps:
+                cur_score = score_mapping.get(comp.name, 60.0) + (u.id % 4) * 3
+                req_score = 80.0
+                level = "Advanced" if cur_score >= 80 else ("Beginner" if cur_score < 50 else "Intermediate")
+                uc = UserCompetency(
+                    user_id=u.id,
+                    competency_id=comp.id,
+                    current_score=min(95.0, cur_score),
+                    required_score=req_score,
+                    level=level
+                )
+                db.add(uc)
 
         db.commit()
 
@@ -205,25 +217,57 @@ def seed_db():
 
         db.commit()
 
-        print("[Database Seed] Seeding initial enrollments...")
-        enrollment1 = Enrollment(
-            user_id=official_user.id,
-            course_id=1, # Python for Data Analysis
-            status="In Progress",
-            progress_pct=45.0
-        )
-        enrollment2 = Enrollment(
-            user_id=official_user.id,
-            course_id=4, # Advanced Survey Sampling (NSSTA)
-            status="Completed",
-            progress_pct=100.0
-        )
+        print("[Database Seed] Seeding initial enrollments & quiz attempts...")
+        enrollment1 = Enrollment(user_id=official_user.id, course_id=1, status="In Progress", progress_pct=45.0)
+        enrollment2 = Enrollment(user_id=official_user.id, course_id=4, status="Completed", progress_pct=100.0)
         db.add(enrollment1)
         db.add(enrollment2)
+
+        # Sample Quiz Attempt with Integrity Score
+        attempt1 = QuizAttempt(
+            user_id=official_user.id,
+            assessment_title="Sampling Methods Competency Quiz",
+            score=9,
+            max_score=10,
+            percentage=90.0,
+            topic_breakdown={"Survey Sampling Methods": 100.0, "Data Quality": 80.0},
+            ai_feedback="Outstanding performance! High mastery in stratified sampling.",
+            tab_switches=0,
+            integrity_score=100.0,
+            integrity_flags=[]
+        )
+        attempt2 = QuizAttempt(
+            user_id=officer_4.id,
+            assessment_title="Cloud & Data Security Assessment",
+            score=5,
+            max_score=10,
+            percentage=50.0,
+            topic_breakdown={"Cloud Computing": 40.0, "Data Privacy": 60.0},
+            ai_feedback="Review MeghRaj security protocols and DPDP Act 2023.",
+            tab_switches=2,
+            integrity_score=50.0,
+            integrity_flags=["2 Tab/Window Switch Violation(s) Detected"]
+        )
+        db.add(attempt1)
+        db.add(attempt2)
         db.commit()
 
-        print("[Database Seed] Calculating initial skill gaps for Ananya Sharma...")
-        CompetencyService.calculate_skill_gaps(db, official_user)
+        # Seed initial admin audit log
+        from app.models import AdminAuditLog
+        audit = AdminAuditLog(
+            admin_id=admin_user.id,
+            admin_name=admin_user.full_name,
+            action="FLAG_INTERVENTION",
+            target_user_id=officer_4.id,
+            target_user_name=officer_4.full_name,
+            details="Notes: Requires immediate upskilling in Python & Cloud Data Security"
+        )
+        db.add(audit)
+        db.commit()
+
+        print("[Database Seed] Calculating initial skill gaps for officers...")
+        for u in [official_user, officer_2, officer_3, officer_4, officer_5]:
+            CompetencyService.calculate_skill_gaps(db, u)
 
         print("[Database Seed] Database seeding completed successfully!")
 
@@ -235,3 +279,4 @@ def seed_db():
 
 if __name__ == "__main__":
     seed_db()
+

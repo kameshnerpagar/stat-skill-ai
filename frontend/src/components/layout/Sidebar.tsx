@@ -33,14 +33,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, role 
     { id: 'statbot', label: 'AI Assistant (StatBot)', icon: Bot },
     { id: 'progress', label: 'Progress & Analytics', icon: LineChart },
     { id: 'profile', label: 'Official Profile', icon: User },
-    { id: 'architecture', label: 'How System Works', icon: Layers },
   ];
 
   const adminNav = [
     { id: 'admin-dashboard', label: 'Workforce Intelligence', icon: Building2 },
+    { id: 'admin-officers', label: 'Officers Directory', icon: User },
     { id: 'admin-heatmap', label: 'Competency Heatmap', icon: Grid },
     { id: 'admin-emerging', label: 'Emerging Skills Demand', icon: Zap },
-    { id: 'architecture', label: 'System Architecture', icon: Layers },
+    { id: 'admin-audit-log', label: 'Admin Audit Log', icon: LineChart },
   ];
 
   const items = role === 'admin' ? adminNav : officialNav;

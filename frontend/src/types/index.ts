@@ -114,6 +114,7 @@ export interface Question {
   explanation: string;
   topic: string;
   difficulty: string;
+  question_type?: string;
 }
 
 export interface MCQGenResponse {
@@ -129,6 +130,8 @@ export interface QuizResult {
   topic_breakdown: Record<string, number>;
   ai_feedback: string;
   updated_overall_competency: number;
+  integrity_score: number;
+  integrity_flags: string[];
 }
 
 export interface AdminAnalytics {

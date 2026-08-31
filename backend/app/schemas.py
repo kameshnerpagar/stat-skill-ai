@@ -38,6 +38,9 @@ class DepartmentSchema(BaseModel):
 class UserResponse(UserBase):
     id: int
     department: Optional[DepartmentSchema] = None
+    intervention_flagged: Optional[int] = 0
+    intervention_notes: Optional[str] = None
+    intervention_date: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -120,9 +123,11 @@ class QuestionSchema(BaseModel):
     explanation: str
     topic: str
     difficulty: str
+    question_type: Optional[str] = "MCQ"
 
 class MCQGenerationRequest(BaseModel):
     text_content: Optional[str] = None
+    material_id: Optional[int] = None
     num_questions: int = 10
     difficulty: str = "Medium" # Easy, Medium, Hard, Mixed
     question_type: str = "MCQ" # MCQ, Quiz
@@ -136,6 +141,8 @@ class QuizSubmitRequest(BaseModel):
     assessment_title: str
     user_answers: Dict[str, str] # {question_index_or_id: option_chosen}
     questions: List[QuestionSchema]
+    tab_switches: Optional[int] = 0
+    per_question_times: Optional[Dict[str, int]] = None
 
 class QuizResultResponse(BaseModel):
     score: int
@@ -144,6 +151,14 @@ class QuizResultResponse(BaseModel):
     topic_breakdown: Dict[str, float]
     ai_feedback: str
     updated_overall_competency: float
+    integrity_score: float = 100.0
+    integrity_flags: List[str] = []
+
+# Officer Intervention Request
+class OfficerInterventionRequest(BaseModel):
+    intervention_flagged: bool
+    intervention_notes: Optional[str] = None
+    assigned_course_id: Optional[int] = None
 
 # Chatbot Schema
 class ChatRequest(BaseModel):
@@ -153,7 +168,7 @@ class ChatResponse(BaseModel):
     reply: str
     suggested_prompts: Optional[List[str]] = None
 
-# Admin Analytics Schemas
+# Admin Analytics & Audit Schemas
 class AdminStatsResponse(BaseModel):
     total_officials: int
     average_competency: float
@@ -165,3 +180,15 @@ class AdminStatsResponse(BaseModel):
     competency_distribution: List[Dict[str, Any]]
     emerging_skills: List[Dict[str, Any]]
     heatmap_matrix: Dict[str, Dict[str, float]]
+
+class AdminAuditLogSchema(BaseModel):
+    id: int
+    admin_name: str
+    action: str
+    target_user_name: str
+    details: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+

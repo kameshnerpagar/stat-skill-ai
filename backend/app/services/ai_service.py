@@ -13,16 +13,35 @@ class AIService:
     def is_ai_available(self) -> bool:
         return self.client is not None
 
-    def generate_mcqs(self, text_content: str, num_questions: int = 10, difficulty: str = "Medium") -> Dict[str, Any]:
-        """Generates MCQs using LLM if available, otherwise using smart keyword/topic fallback engine."""
+    def generate_mcqs(
+        self,
+        text_content: str,
+        num_questions: int = 10,
+        difficulty: str = "Medium",
+        prior_questions: Optional[List[str]] = None,
+        db: Optional[Any] = None,
+        user_id: Optional[int] = None,
+        material_id: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Generates non-repeating MCQs using LLM if available, otherwise using real sentence-extraction fallback engine."""
+        prior_questions = prior_questions or []
+
+        result = None
         if self.client:
             try:
+                avoid_prompt = ""
+                if prior_questions:
+                    avoid_list = "\n".join([f"- {q}" for q in prior_questions[:15]])
+                    avoid_prompt = f"\nCRITICAL: DO NOT repeat or generate questions similar to any of these previously generated questions:\n{avoid_list}\n"
+
                 prompt = f"""
                 You are an expert AI assessment creator for India's Official Statistical System (MoSPI).
-                Analyze the following learning material text and generate {num_questions} Multiple Choice Questions (MCQs) of {difficulty} difficulty.
+                Analyze the following learning material text and generate {num_questions} questions of {difficulty} difficulty grounded strictly in the provided text.
 
                 Learning Material:
                 \"\"\"{text_content[:4000]}\"\"\"
+                {avoid_prompt}
+                Vary the question types (MCQs, True/False scenarios, and practical policy application questions).
 
                 Return ONLY a valid JSON object matching this exact structure:
                 {{
@@ -30,12 +49,13 @@ class AIService:
                   "detected_topics": ["Topic 1", "Topic 2", "Topic 3"],
                   "questions": [
                     {{
-                      "text": "Question text here?",
+                      "text": "Grounded question text here?",
                       "options": ["A. Option 1", "B. Option 2", "C. Option 3", "D. Option 4"],
                       "correct_answer": "B. Option 2",
-                      "explanation": "Detailed explanation why Option 2 is correct.",
-                      "topic": "Topic Name",
-                      "difficulty": "{difficulty}"
+                      "explanation": "Detailed explanation grounded in the text why Option 2 is correct.",
+                      "topic": "Extracted Topic Name",
+                      "difficulty": "{difficulty}",
+                      "question_type": "MCQ"
                     }}
                   ]
                 }}
@@ -47,20 +67,153 @@ class AIService:
                         {"role": "user", "content": prompt}
                     ],
                     response_format={"type": "json_object"},
-                    temperature=0.3
+                    temperature=0.7
                 )
                 result = json.loads(response.choices[0].message.content)
-                return result
             except Exception as e:
-                print(f"[AIService] OpenAI generation error: {e}. Switching to smart fallback.")
+                print(f"[AIService] OpenAI generation error: {e}. Switching to real text extraction fallback engine.")
 
-        # Smart Fallback Engine
-        return self._generate_fallback_mcqs(text_content, num_questions, difficulty)
+        if not result:
+            # Real Extraction Fallback Engine
+            result = self._generate_fallback_mcqs(text_content, num_questions, difficulty, prior_questions)
 
-    def _generate_fallback_mcqs(self, text_content: str, num_questions: int, difficulty: str) -> Dict[str, Any]:
-        """Deterministic smart fallback question generator based on statistical domain material."""
+        # Randomize question order and option order for every quiz render
+        questions = result.get("questions", [])
+        for q in questions:
+            opts = q.get("options", [])
+            correct = q.get("correct_answer", "")
+            
+            # Find raw text of correct answer before prefix
+            correct_raw = re.sub(r'^[A-D]\.\s*', '', correct).strip()
+            
+            # Strip prefixes A., B., C., D.
+            clean_opts = [re.sub(r'^[A-D]\.\s*', '', opt).strip() for opt in opts]
+            
+            # Shuffle options
+            random.shuffle(clean_opts)
+            
+            # Re-assign prefixes A., B., C., D.
+            new_opts = [f"{chr(65+i)}. {opt}" for i, opt in enumerate(clean_opts)]
+            
+            # Find new correct answer string with new prefix
+            new_correct = new_opts[0]
+            for opt in new_opts:
+                if correct_raw and correct_raw.lower() in opt.lower():
+                    new_correct = opt
+                    break
+            
+            q["options"] = new_opts
+            q["correct_answer"] = new_correct
 
-        # Sample pool of statistical domain questions to blend with content keywords
+        random.shuffle(questions)
+        result["questions"] = questions[:num_questions]
+
+        # Save to DB if session provided
+        if db and result.get("questions"):
+            try:
+                from app.models import GeneratedQuestion, UserQuestionExposure
+                for q in result["questions"]:
+                    gen_q = GeneratedQuestion(
+                        material_id=material_id,
+                        user_id=user_id,
+                        question_text=q["text"],
+                        options=q["options"],
+                        correct_answer=q["correct_answer"],
+                        explanation=q.get("explanation", ""),
+                        topic=q.get("topic", "General Statistics"),
+                        difficulty=q.get("difficulty", difficulty),
+                        question_type=q.get("question_type", "MCQ")
+                    )
+                    db.add(gen_q)
+                    if user_id:
+                        exp = UserQuestionExposure(
+                            user_id=user_id,
+                            material_id=material_id,
+                            question_text=q["text"]
+                        )
+                        db.add(exp)
+                db.commit()
+            except Exception as ex:
+                print(f"[AIService] Error persisting generated questions: {ex}")
+                db.rollback()
+
+        return result
+
+    def _generate_fallback_mcqs(self, text_content: str, num_questions: int, difficulty: str, prior_questions: List[str]) -> Dict[str, Any]:
+        """Real extraction-based question generator using basic NLP sentence & entity splitting."""
+        sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text_content) if len(s.strip()) > 25]
+        
+        # Extract terms/words (nouns/capitalized terms)
+        words = re.findall(r'\b[A-Z][a-zA-Z0-9_\-]{2,}\b', text_content)
+        unique_terms = list(dict.fromkeys(words))
+        
+        # Distractor pool
+        distractor_pool = unique_terms + ["MoSPI Guidelines", "National Indicator Framework", "Sampling Error", "Microdata Masking", "Data Fiduciary", "Stratified Strata", "Index Compilation"]
+        distractor_pool = list(set(distractor_pool))
+
+        extracted_questions = []
+        prior_set = set(p.lower() for p in prior_questions)
+
+        for sent in sentences:
+            if len(extracted_questions) >= num_questions:
+                break
+            
+            # Avoid repeating previously asked questions
+            if any(p in sent.lower() for p in prior_set):
+                continue
+
+            # Look for definition/key relationship: "X is Y" or "X includes Y"
+            words_in_sent = sent.split()
+            if len(words_in_sent) < 6:
+                continue
+
+            # Pick a target term to turn into fill-in-the-blank or MCQ
+            target_word = None
+            for w in words_in_sent:
+                clean_w = re.sub(r'[^\w]', '', w)
+                if len(clean_w) > 4 and clean_w[0].isupper() and clean_w.lower() not in ["india", "the", "this", "these", "under", "which"]:
+                    target_word = clean_w
+                    break
+
+            if not target_word:
+                # Pick longest word
+                clean_words = [re.sub(r'[^\w]', '', w) for w in words_in_sent if len(re.sub(r'[^\w]', '', w)) > 4]
+                if clean_words:
+                    target_word = max(clean_words, key=len)
+
+            if not target_word:
+                continue
+
+            # Form fill-in-the-blank question
+            q_text = sent.replace(target_word, "_______")
+            if q_text in prior_set or any(q["text"] == f"Complete the statement from the text: \"{q_text}\"" for q in extracted_questions):
+                continue
+
+            # Pick 3 distractors
+            other_distractors = [d for d in distractor_pool if d.lower() != target_word.lower()]
+            random.shuffle(other_distractors)
+            distractors = other_distractors[:3]
+            while len(distractors) < 3:
+                distractors.append(f"Option {len(distractors)+1}")
+
+            options = [target_word] + distractors
+            random.shuffle(options)
+            formatted_opts = [f"{chr(65+i)}. {opt}" for i, opt in enumerate(options)]
+            
+            correct_idx = options.index(target_word)
+            correct_ans = formatted_opts[correct_idx]
+
+            extracted_questions.append({
+                "text": f"Complete the statement from the uploaded material: \"{q_text}\"",
+                "options": formatted_opts,
+                "correct_answer": correct_ans,
+                "explanation": f"The exact sentence from the source text is: '{sent}'",
+                "topic": "Document Content Extraction",
+                "difficulty": difficulty,
+                "question_type": "Fill-in-the-blank"
+            })
+
+        # Base statistical domain bank as supplement if document text is small
         question_bank = [
             {
                 "text": "Which sampling technique divides the population into non-overlapping groups (strata) and draws independent samples from each?",
@@ -68,7 +221,8 @@ class AIService:
                 "correct_answer": "B. Stratified Sampling",
                 "explanation": "Stratified sampling ensures representation across homogeneous subgroups (strata) by sampling from each group independently.",
                 "topic": "Survey Sampling Methods",
-                "difficulty": difficulty
+                "difficulty": difficulty,
+                "question_type": "MCQ"
             },
             {
                 "text": "What is the primary indicator used by MoSPI to measure wholesale price changes in India?",
@@ -76,7 +230,8 @@ class AIService:
                 "correct_answer": "B. Wholesale Price Index (WPI)",
                 "explanation": "WPI tracks price movements at the wholesale level before reaching retail markets.",
                 "topic": "Price Statistics",
-                "difficulty": difficulty
+                "difficulty": difficulty,
+                "question_type": "MCQ"
             },
             {
                 "text": "In Python pandas library, which data structure represents a 2-dimensional labeled tabular data structure?",
@@ -84,7 +239,8 @@ class AIService:
                 "correct_answer": "B. DataFrame",
                 "explanation": "A DataFrame is pandas' primary 2D tabular data structure with heterogeneous column types.",
                 "topic": "Python for Data Analysis",
-                "difficulty": difficulty
+                "difficulty": difficulty,
+                "question_type": "MCQ"
             },
             {
                 "text": "Under India's Digital Personal Data Protection (DPDP) Act 2023, what is the role responsible for determining the purpose of data processing?",
@@ -92,7 +248,8 @@ class AIService:
                 "correct_answer": "B. Data Fiduciary",
                 "explanation": "A Data Fiduciary determines the purpose and means of processing personal data.",
                 "topic": "Data Privacy & Governance",
-                "difficulty": difficulty
+                "difficulty": difficulty,
+                "question_type": "MCQ"
             },
             {
                 "text": "Which cloud computing deployment model is shared exclusively by multiple organizations with common compliance or security concerns?",
@@ -100,7 +257,8 @@ class AIService:
                 "correct_answer": "C. Community / Government Cloud",
                 "explanation": "Government Cloud infrastructure is tailored to public sector compliance, sovereign security, and intra-agency interoperability.",
                 "topic": "Cloud Computing",
-                "difficulty": difficulty
+                "difficulty": difficulty,
+                "question_type": "MCQ"
             },
             {
                 "text": "What is the main goal of data normalisation in statistical database management?",
@@ -108,63 +266,33 @@ class AIService:
                 "correct_answer": "B. Reducing data redundancy and improving integrity",
                 "explanation": "Normalization organizes fields and tables of a relational database to minimize redundancy and dependency.",
                 "topic": "SQL & Data Engineering",
-                "difficulty": difficulty
+                "difficulty": difficulty,
+                "question_type": "MCQ"
             },
             {
-                "text": "Which machine learning algorithm is commonly used for predicting continuous statistical outcomes like GDP growth rate?",
+                "text": "Scenario: An officer needs to predict continuous crop yield outputs from historical weather data. Which algorithm is best suited?",
                 "options": ["A. Logistic Regression", "B. Linear Regression", "C. K-Means Clustering", "D. Naive Bayes"],
                 "correct_answer": "B. Linear Regression",
-                "explanation": "Linear regression models the relationship between dependent continuous variables and independent predictors.",
-                "topic": "AI & ML for Statistical Systems",
-                "difficulty": difficulty
-            },
-            {
-                "text": "Which SDG (Sustainable Development Goal) explicitly addresses 'Decent Work and Economic Growth' tracked in National Statistical Frameworks?",
-                "options": ["A. SDG 1", "B. SDG 5", "C. SDG 8", "D. SDG 13"],
-                "correct_answer": "C. SDG 8",
-                "explanation": "SDG 8 promotes sustained, inclusive, and sustainable economic growth, full and productive employment, and decent work for all.",
-                "topic": "SDG Indicators",
-                "difficulty": difficulty
-            },
-            {
-                "text": "In survey methodology, what type of bias occurs when certain population units have zero probability of being selected?",
-                "options": ["A. Non-response Bias", "B. Coverage Bias / Undercoverage", "C. Measurement Bias", "D. Recall Bias"],
-                "correct_answer": "B. Coverage Bias / Undercoverage",
-                "explanation": "Undercoverage occurs when the sampling frame does not adequately represent all segments of the target population.",
-                "topic": "Data Quality Frameworks",
-                "difficulty": difficulty
-            },
-            {
-                "text": "Which spatial data format is standard for vector geometries (points, lines, polygons) in GIS official mapping?",
-                "options": ["A. GeoJSON / Shapefile", "B. MP4", "C. CSV", "D. GeoTIFF"],
-                "correct_answer": "A. GeoJSON / Shapefile",
-                "explanation": "Vector geographic data standardly uses Shapefiles or GeoJSON formats to represent administrative boundaries and census tracts.",
-                "topic": "GIS & Spatial Analytics",
-                "difficulty": difficulty
+                "explanation": "Linear regression models continuous target variables such as crop yields or GDP growth.",
+                "topic": "AI & ML Applications",
+                "difficulty": difficulty,
+                "question_type": "Scenario"
             }
         ]
 
-        # Extract topics dynamically from text
-        detected_topics = ["Survey Methodology", "Data Analysis", "Official Statistics", "Data Quality"]
-        if "python" in text_content.lower() or "pandas" in text_content.lower():
-            detected_topics.append("Python Data Science")
-        if "cloud" in text_content.lower():
-            detected_topics.append("Cloud Computing")
-        if "privacy" in text_content.lower() or "security" in text_content.lower():
-            detected_topics.append("Data Governance")
+        # Filter out prior asked bank questions
+        bank_filtered = [q for q in question_bank if q["text"].lower() not in prior_set]
 
-        # Select questions to match num_questions
-        selected_questions = question_bank[:min(num_questions, len(question_bank))]
-        
-        # If user asked for more questions than default bank, fill with slight variations
-        while len(selected_questions) < num_questions:
-            idx = len(selected_questions) % len(question_bank)
-            q = dict(question_bank[idx])
-            q["text"] = f"[Advanced Module {len(selected_questions)+1}] " + q["text"]
-            selected_questions.append(q)
+        all_questions = extracted_questions + bank_filtered
+        random.shuffle(all_questions)
+        selected_questions = all_questions[:num_questions]
+
+        detected_topics = ["Source Document Extraction", "Statistical Methodology", "Data Governance"]
+        if unique_terms:
+            detected_topics.extend(unique_terms[:3])
 
         return {
-            "topic_summary": f"Analyzed uploaded material ({len(text_content)} characters). Key extracted themes focus on statistical methodologies, data governance standards, Python data processing, and quality frameworks in MoSPI operational guidelines.",
+            "topic_summary": f"Analyzed uploaded material ({len(text_content)} characters) and generated real extraction-based non-repeating questions grounded in source sentences and key technical entities.",
             "detected_topics": list(set(detected_topics)),
             "questions": selected_questions
         }

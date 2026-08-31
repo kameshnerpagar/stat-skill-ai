@@ -76,19 +76,29 @@ export const assessmentService = {
     });
     return res.data;
   },
-  generateMCQs: async (textContent: string, numQuestions = 10, difficulty = 'Medium'): Promise<MCQGenResponse> => {
+  generateMCQs: async (textContent: string, numQuestions = 10, difficulty = 'Medium', materialId?: number): Promise<MCQGenResponse> => {
     const res = await api.post('/assessments/generate', {
       text_content: textContent,
       num_questions: numQuestions,
-      difficulty: difficulty
+      difficulty: difficulty,
+      material_id: materialId
     });
     return res.data;
   },
-  submitQuiz: async (assessmentTitle: string, questions: Question[], userAnswers: Record<string, string>, email = 'official@statskill.gov.in'): Promise<QuizResult> => {
+  submitQuiz: async (
+    assessmentTitle: string,
+    questions: Question[],
+    userAnswers: Record<string, string>,
+    email = 'official@statskill.gov.in',
+    tabSwitches = 0,
+    perQuestionTimes?: Record<string, number>
+  ): Promise<QuizResult> => {
     const res = await api.post(`/quiz/submit?email=${encodeURIComponent(email)}`, {
       assessment_title: assessmentTitle,
       questions,
-      user_answers: userAnswers
+      user_answers: userAnswers,
+      tab_switches: tabSwitches,
+      per_question_times: perQuestionTimes
     });
     return res.data;
   }
@@ -111,3 +121,26 @@ export const analyticsService = {
     return res.data;
   }
 };
+
+export const adminService = {
+  getAllOfficers: async (): Promise<any[]> => {
+    const res = await api.get('/admin/officers');
+    return res.data;
+  },
+  getOfficerDetail: async (userId: number): Promise<any> => {
+    const res = await api.get(`/admin/officers/${userId}`);
+    return res.data;
+  },
+  updateOfficerIntervention: async (userId: number, interventionFlagged: boolean, notes?: string): Promise<any> => {
+    const res = await api.post(`/admin/officers/${userId}/intervention`, {
+      intervention_flagged: interventionFlagged,
+      intervention_notes: notes
+    });
+    return res.data;
+  },
+  getAuditLogs: async (): Promise<any[]> => {
+    const res = await api.get('/admin/audit-log');
+    return res.data;
+  }
+};
+

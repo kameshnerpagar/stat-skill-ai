@@ -263,13 +263,40 @@ async def upload_material(
     }
 
 @router.post("/assessments/generate", response_model=schemas.MCQGenerationResponse)
-def generate_mcqs_endpoint(req: schemas.MCQGenerationRequest):
+def generate_mcqs_endpoint(
+    req: schemas.MCQGenerationRequest,
+    email: str = Query("official@statskill.gov.in"),
+    db: Session = Depends(get_db)
+):
+    user = db.query(User).filter(User.email == email).first()
+    user_id = user.id if user else None
+
+    # Fetch prior questions for user & material to avoid repeating
+    prior_questions = []
+    if user_id:
+        from app.models import UserQuestionExposure, GeneratedQuestion
+        exposures = db.query(UserQuestionExposure).filter(UserQuestionExposure.user_id == user_id).all()
+        prior_questions = [e.question_text for e in exposures]
+
     text_content = req.text_content or "Stratified sampling divides a statistical population into homogeneous strata to minimize sampling error across survey operations."
-    result = ai_service.generate_mcqs(text_content, req.num_questions, req.difficulty)
+    
+    result = ai_service.generate_mcqs(
+        text_content=text_content,
+        num_questions=req.num_questions,
+        difficulty=req.difficulty,
+        prior_questions=prior_questions,
+        db=db,
+        user_id=user_id,
+        material_id=req.material_id
+    )
     return result
 
 @router.post("/quiz/submit", response_model=schemas.QuizResultResponse)
-def submit_quiz(req: schemas.QuizSubmitRequest, email: str = "official@statskill.gov.in", db: Session = Depends(get_db)):
+def submit_quiz(
+    req: schemas.QuizSubmitRequest,
+    email: str = Query("official@statskill.gov.in"),
+    db: Session = Depends(get_db)
+):
     user = db.query(User).filter(User.email == email).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -301,13 +328,24 @@ def submit_quiz(req: schemas.QuizSubmitRequest, email: str = "official@statskill
     percentage = round((score / max_score) * 100.0, 1) if max_score > 0 else 0.0
     ai_feedback = ai_service.generate_quiz_feedback(score, max_score, topic_breakdown)
 
+    # ANTI-CHEATING INTEGRITY SCORE CALCULATIONS
+    tab_switches = req.tab_switches or 0
+    integrity_score = max(0.0, round(100.0 - (tab_switches * 25.0), 1))
+    integrity_flags = []
+    if tab_switches > 0:
+        integrity_flags.append(f"{tab_switches} Tab/Window Switch Violation(s) Detected")
+    if tab_switches >= 3:
+        integrity_flags.append("Auto-Submitted Due to Maximum Tab Violation Limit")
+
+    if req.per_question_times:
+        fast_answers = [q_idx for q_idx, secs in req.per_question_times.items() if secs < 3]
+        if fast_answers:
+            integrity_flags.append(f"Anomalous Speed Detected on Question(s): {', '.join(fast_answers)}")
+            integrity_score = max(0.0, integrity_score - 10.0)
+
     # DYNAMIC COMPETENCY SCORE BOOST UPON QUIZ SUBMISSION!
-    # Update user's competencies relevant to quiz topics
     user_comps = db.query(UserCompetency).filter(UserCompetency.user_id == user.id).all()
-    if percentage >= 70:
-        boost = 3.5
-    else:
-        boost = 1.5
+    boost = 3.5 if percentage >= 70 else 1.5
 
     for uc in user_comps:
         comp_name = uc.competency.name.lower()
@@ -328,7 +366,11 @@ def submit_quiz(req: schemas.QuizSubmitRequest, email: str = "official@statskill
         max_score=max_score,
         percentage=percentage,
         topic_breakdown=topic_breakdown,
-        ai_feedback=ai_feedback
+        ai_feedback=ai_feedback,
+        tab_switches=tab_switches,
+        integrity_score=integrity_score,
+        integrity_flags=integrity_flags,
+        per_question_times=req.per_question_times or {}
     )
     db.add(attempt)
     db.commit()
@@ -342,14 +384,16 @@ def submit_quiz(req: schemas.QuizSubmitRequest, email: str = "official@statskill
         "percentage": percentage,
         "topic_breakdown": topic_breakdown,
         "ai_feedback": ai_feedback,
-        "updated_overall_competency": user.overall_competency_score
+        "updated_overall_competency": user.overall_competency_score,
+        "integrity_score": integrity_score,
+        "integrity_flags": integrity_flags
     }
 
 # -------------------------------------------------------------
 # STATBOT AI ASSISTANT & LEARNER PROGRESS
 # -------------------------------------------------------------
 @router.post("/ai/chat", response_model=schemas.ChatResponse)
-def chat_with_statbot(req: schemas.ChatRequest, email: str = "official@statskill.gov.in", db: Session = Depends(get_db)):
+def chat_with_statbot(req: schemas.ChatRequest, email: str = Query("official@statskill.gov.in"), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == email).first()
     context = {}
     if user:
@@ -371,7 +415,7 @@ def chat_with_statbot(req: schemas.ChatRequest, email: str = "official@statskill
     }
 
 @router.get("/progress")
-def get_learner_progress(email: str = "official@statskill.gov.in", db: Session = Depends(get_db)):
+def get_learner_progress(email: str = Query("official@statskill.gov.in"), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == email).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -414,9 +458,176 @@ def get_learner_progress(email: str = "official@statskill.gov.in", db: Session =
     }
 
 # -------------------------------------------------------------
-# ADMIN DASHBOARD & WORKFORCE INTELLIGENCE
+# ADMIN DASHBOARD, OFFICERS MONITORING & AUDIT LOGS
 # -------------------------------------------------------------
 @router.get("/admin/analytics", response_model=schemas.AdminStatsResponse)
 def get_admin_analytics(db: Session = Depends(get_db)):
     metrics = AnalyticsService.get_admin_dashboard_metrics(db)
     return metrics
+
+@router.get("/admin/officers")
+def get_all_officers(db: Session = Depends(get_db)):
+    """Returns directory of all officials for Authority performance monitoring."""
+    officers = db.query(User).filter(User.role == "official").all()
+    
+    result = []
+    for u in officers:
+        gaps = db.query(SkillGap).filter(SkillGap.user_id == u.id, SkillGap.priority.in_(["High", "Critical"])).all()
+        last_attempt = db.query(QuizAttempt).filter(QuizAttempt.user_id == u.id).order_by(QuizAttempt.created_at.desc()).first()
+        
+        integrity_status = "Good"
+        if last_attempt and last_attempt.integrity_score < 75.0:
+            integrity_status = "Warning"
+
+        result.append({
+            "id": u.id,
+            "email": u.email,
+            "full_name": u.full_name,
+            "designation": u.designation,
+            "department": u.department.name if u.department else "General Pool",
+            "experience_years": u.experience_years,
+            "overall_competency_score": u.overall_competency_score,
+            "critical_gaps_count": len(gaps),
+            "last_active": last_attempt.created_at.strftime("%Y-%m-%d") if last_attempt else "Recent",
+            "integrity_status": integrity_status,
+            "intervention_flagged": bool(u.intervention_flagged),
+            "intervention_notes": u.intervention_notes,
+            "intervention_date": u.intervention_date.strftime("%Y-%m-%d") if u.intervention_date else None
+        })
+    return result
+
+@router.get("/admin/officers/{user_id}")
+def get_officer_detail(user_id: int, db: Session = Depends(get_db)):
+    """Returns detailed profile analytics for a single officer."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Officer not found")
+
+    user_comps = db.query(UserCompetency).filter(UserCompetency.user_id == user.id).all()
+    domain_totals = {"Statistical": [], "Technical": [], "Digital Governance": [], "Behavioural & Managerial": []}
+    for uc in user_comps:
+        cat = uc.competency.category
+        if cat in domain_totals:
+            domain_totals[cat].append(uc.current_score)
+
+    domain_radar = []
+    for cat, scores in domain_totals.items():
+        avg = sum(scores) / len(scores) if scores else 50.0
+        domain_radar.append({"subject": cat, "score": round(avg, 1), "fullMark": 100})
+
+    attempts = db.query(QuizAttempt).filter(QuizAttempt.user_id == user.id).order_by(QuizAttempt.created_at.asc()).all()
+    quiz_history = []
+    for a in attempts:
+        quiz_history.append({
+            "id": a.id,
+            "title": a.assessment_title,
+            "percentage": a.percentage,
+            "integrity_score": a.integrity_score,
+            "tab_switches": a.tab_switches,
+            "integrity_flags": a.integrity_flags or [],
+            "date": a.created_at.strftime("%b %d, %Y")
+        })
+
+    enrollments = db.query(Enrollment).filter(Enrollment.user_id == user.id).all()
+    course_list = []
+    for e in enrollments:
+        course_list.append({
+            "id": e.course.id,
+            "title": e.course.title,
+            "provider": e.course.provider,
+            "status": e.status,
+            "progress_pct": e.progress_pct
+        })
+
+    gaps = db.query(SkillGap).filter(SkillGap.user_id == user.id).order_by(SkillGap.priority_score.desc()).all()
+    gap_list = []
+    for g in gaps:
+        gap_list.append({
+            "skill_name": g.skill_name,
+            "category": g.category,
+            "gap_score": g.gap_score,
+            "priority": g.priority,
+            "priority_reason": g.priority_reason
+        })
+
+    # Comparative averages
+    dept_avg = 69.5
+    org_avg = 68.4
+
+    return {
+        "id": user.id,
+        "full_name": user.full_name,
+        "email": user.email,
+        "designation": user.designation,
+        "department": user.department.name if user.department else "Unassigned",
+        "experience_years": user.experience_years,
+        "education": user.education,
+        "career_goal": user.career_goal,
+        "overall_competency_score": user.overall_competency_score,
+        "dept_average": dept_avg,
+        "org_average": org_avg,
+        "delta_vs_dept": round(user.overall_competency_score - dept_avg, 1),
+        "intervention_flagged": bool(user.intervention_flagged),
+        "intervention_notes": user.intervention_notes,
+        "intervention_date": user.intervention_date.strftime("%Y-%m-%d") if user.intervention_date else None,
+        "domain_radar": domain_radar,
+        "quiz_history": quiz_history,
+        "course_enrollments": course_list,
+        "skill_gaps": gap_list,
+        "learning_hours": 38,
+        "streak_days": 12
+    }
+
+@router.post("/admin/officers/{user_id}/intervention")
+def update_officer_intervention(
+    user_id: int,
+    req: schemas.OfficerInterventionRequest,
+    db: Session = Depends(get_db)
+):
+    """Flags or clears intervention status for an officer and logs to AdminAuditLog."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Officer not found")
+
+    user.intervention_flagged = 1 if req.intervention_flagged else 0
+    user.intervention_notes = req.intervention_notes or ("Intervention flagged for skill gap review" if req.intervention_flagged else "Intervention resolved")
+    user.intervention_date = datetime.datetime.utcnow()
+
+    # Create Audit Log
+    admin_user = db.query(User).filter(User.role == "admin").first()
+    audit_entry = AdminAuditLog(
+        admin_id=admin_user.id if admin_user else None,
+        admin_name=admin_user.full_name if admin_user else "Dr. Rajesh Verma",
+        action="FLAG_INTERVENTION" if req.intervention_flagged else "RESOLVE_INTERVENTION",
+        target_user_id=user.id,
+        target_user_name=user.full_name,
+        details=f"Notes: {user.intervention_notes}"
+    )
+    db.add(audit_entry)
+    db.commit()
+    db.refresh(user)
+
+    return {
+        "status": "success",
+        "message": f"Updated intervention status for {user.full_name}",
+        "intervention_flagged": bool(user.intervention_flagged),
+        "intervention_notes": user.intervention_notes
+    }
+
+@router.get("/admin/audit-log")
+def get_admin_audit_logs(db: Session = Depends(get_db)):
+    """Returns append-only audit log of admin interventions and actions."""
+    from app.models import AdminAuditLog
+    logs = db.query(AdminAuditLog).order_by(AdminAuditLog.created_at.desc()).all()
+    result = []
+    for l in logs:
+        result.append({
+            "id": l.id,
+            "admin_name": l.admin_name,
+            "action": l.action,
+            "target_user_name": l.target_user_name,
+            "details": l.details,
+            "created_at": l.created_at.strftime("%b %d, %Y %H:%M")
+        })
+    return result
+

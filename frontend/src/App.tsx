@@ -16,16 +16,21 @@ import { QuizTakingPage } from './pages/QuizTakingPage';
 import { StatBotPage } from './pages/StatBotPage';
 import { ProgressPage } from './pages/ProgressPage';
 import { AdminDashboard } from './pages/AdminDashboard';
+import { AdminOfficersPage } from './pages/AdminOfficersPage';
+import { AdminOfficerDetailPage } from './pages/AdminOfficerDetailPage';
 import { CompetencyHeatmapPage } from './pages/CompetencyHeatmapPage';
 import { EmergingSkillsPage } from './pages/EmergingSkillsPage';
+import { AdminAuditLogPage } from './pages/AdminAuditLogPage';
 import { ProfilePage } from './pages/ProfilePage';
-import { ArchitecturePage } from './pages/ArchitecturePage';
+import { Language } from './utils/i18n';
 
 export function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentView, setCurrentView] = useState<string>('dashboard');
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
+  const [selectedOfficerId, setSelectedOfficerId] = useState<number | null>(null);
   const [quizParams, setQuizParams] = useState<{ title: string; questions: Question[] } | null>(null);
+  const [lang, setLang] = useState<Language>('en');
   const [loading, setLoading] = useState(true);
 
   // Initialize with official user
@@ -47,7 +52,7 @@ export function App() {
   const handleLogin = async (email: string, role: UserRole) => {
     try {
       const user = await authService.login(email);
-      user.role = role; // Override role for demo view testing
+      user.role = role;
       setCurrentUser(user);
       if (role === 'admin') {
         setCurrentView('admin-dashboard');
@@ -85,16 +90,23 @@ export function App() {
     setCurrentView('course-detail');
   };
 
+  const handleSelectOfficer = (officerId: number) => {
+    setSelectedOfficerId(officerId);
+    setCurrentView('admin-officer-detail');
+  };
+
   if (!currentUser || currentView === 'login') {
     return <LoginPage onLogin={handleLogin} />;
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 flex flex-col font-sans">
+    <div className="min-h-screen bg-slate-100 flex flex-col font-sans text-left">
       <Navbar
         user={currentUser}
         onSwitchUser={handleSwitchUserRole}
         onNavigate={setCurrentView}
+        lang={lang}
+        onToggleLang={() => setLang(l => l === 'en' ? 'hi' : 'en')}
       />
 
       <div className="flex-1 flex overflow-hidden">
@@ -166,11 +178,22 @@ export function App() {
             <AdminDashboard onNavigate={setCurrentView} />
           )}
 
+          {currentView === 'admin-officers' && (
+            <AdminOfficersPage onSelectOfficer={handleSelectOfficer} />
+          )}
+
+          {currentView === 'admin-officer-detail' && selectedOfficerId && (
+            <AdminOfficerDetailPage
+              officerId={selectedOfficerId}
+              onBack={() => setCurrentView('admin-officers')}
+            />
+          )}
+
           {currentView === 'admin-heatmap' && <CompetencyHeatmapPage />}
 
           {currentView === 'admin-emerging' && <EmergingSkillsPage />}
 
-          {currentView === 'architecture' && <ArchitecturePage />}
+          {currentView === 'admin-audit-log' && <AdminAuditLogPage />}
         </main>
       </div>
     </div>
@@ -178,3 +201,4 @@ export function App() {
 }
 
 export default App;
+

@@ -23,13 +23,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
     fetchAdmin();
   }, []);
 
+  const handleExportCSV = () => {
+    if (!data) return;
+    const headers = ['Department', 'Average Competency Score'];
+    const rows = data.department_competencies.map(d => [`"${d.department}"`, d.competency]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `MoSPI_Workforce_Analytics_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="space-y-6 text-left">
       {/* Header */}
-      <div className="bg-slate-900 text-white p-6 rounded-2xl border border-slate-800 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+      <div className="bg-slate-900 text-white p-6 rounded-lg border border-slate-800 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center space-x-2">
-            <span className="bg-amber-500/20 text-amber-300 text-xs font-semibold px-2.5 py-0.5 rounded-full border border-amber-500/30">
+            <span className="bg-blue-900/60 text-blue-300 text-xs font-semibold px-2.5 py-0.5 rounded border border-blue-700 font-mono">
               MoSPI Administrator Portal
             </span>
             <span className="text-xs text-slate-400 font-mono">• National Capacity Building Analytics</span>
@@ -40,20 +54,40 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
           </p>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={handleExportCSV}
+            className="bg-blue-700 hover:bg-blue-800 text-white font-bold px-3 py-1.5 rounded text-xs transition shadow-sm flex items-center gap-1.5"
+          >
+            <span>Export CSV</span>
+          </button>
+          <button
+            onClick={() => onNavigate('admin-officers')}
+            className="bg-slate-800 hover:bg-slate-700 text-white font-bold px-3 py-1.5 rounded text-xs transition border border-slate-700 flex items-center gap-1.5"
+          >
+            <Users className="w-3.5 h-3.5 text-blue-400" />
+            <span>Officers Directory</span>
+          </button>
           <button
             onClick={() => onNavigate('admin-heatmap')}
-            className="bg-slate-800 hover:bg-slate-700 text-white font-bold px-3.5 py-2 rounded-xl transition text-xs border border-slate-700 flex items-center gap-1.5"
+            className="bg-slate-800 hover:bg-slate-700 text-white font-semibold px-3 py-1.5 rounded text-xs transition border border-slate-700 flex items-center gap-1.5"
           >
-            <Grid className="w-4 h-4 text-amber-400" />
-            <span>View Competency Heatmap</span>
+            <Grid className="w-3.5 h-3.5 text-blue-400" />
+            <span>Competency Heatmap</span>
           </button>
           <button
             onClick={() => onNavigate('admin-emerging')}
-            className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3.5 py-2 rounded-xl transition text-xs shadow-md shadow-amber-500/20 flex items-center gap-1.5"
+            className="bg-slate-800 hover:bg-slate-700 text-white font-semibold px-3 py-1.5 rounded text-xs transition border border-slate-700 flex items-center gap-1.5"
           >
-            <Zap className="w-4 h-4" />
-            <span>Emerging Skills Demand</span>
+            <Zap className="w-3.5 h-3.5 text-amber-400" />
+            <span>Emerging Skills</span>
+          </button>
+          <button
+            onClick={() => onNavigate('admin-audit-log')}
+            className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold px-3 py-1.5 rounded text-xs transition border border-slate-700 flex items-center gap-1.5"
+          >
+            <Clock className="w-3.5 h-3.5 text-slate-400" />
+            <span>Audit Log</span>
           </button>
         </div>
       </div>

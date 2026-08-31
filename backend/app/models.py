@@ -27,6 +27,9 @@ class User(Base):
     current_assignment = Column(String, default="National Survey Data Processing Pipeline")
     career_goal = Column(String, default="Move into Data Science and Advanced Statistical Analytics")
     overall_competency_score = Column(Float, default=66.0)
+    intervention_flagged = Column(Integer, default=0) # 0 or 1
+    intervention_notes = Column(Text, nullable=True)
+    intervention_date = Column(DateTime, nullable=True)
 
     department = relationship("Department", back_populates="users")
     competencies = relationship("UserCompetency", back_populates="user", cascade="all, delete-orphan")
@@ -116,6 +119,30 @@ class Question(Base):
 
     assessment = relationship("Assessment", back_populates="questions")
 
+class GeneratedQuestion(Base):
+    __tablename__ = "generated_questions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    material_id = Column(Integer, ForeignKey("learning_materials.id"), nullable=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    question_text = Column(Text, index=True)
+    options = Column(JSON)
+    correct_answer = Column(String)
+    explanation = Column(Text)
+    topic = Column(String)
+    difficulty = Column(String, default="Medium")
+    question_type = Column(String, default="MCQ") # MCQ, True/False, Scenario, Fill-in-the-blank
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+class UserQuestionExposure(Base):
+    __tablename__ = "user_question_exposures"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    material_id = Column(Integer, ForeignKey("learning_materials.id"), nullable=True)
+    question_text = Column(Text)
+    seen_at = Column(DateTime, default=datetime.datetime.utcnow)
+
 class QuizAttempt(Base):
     __tablename__ = "quiz_attempts"
 
@@ -127,6 +154,10 @@ class QuizAttempt(Base):
     percentage = Column(Float)
     topic_breakdown = Column(JSON, default=dict)
     ai_feedback = Column(Text)
+    tab_switches = Column(Integer, default=0)
+    integrity_score = Column(Float, default=100.0)
+    integrity_flags = Column(JSON, default=list) # List of string warning flags
+    per_question_times = Column(JSON, default=dict) # Dict of question index to seconds
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     user = relationship("User", back_populates="quiz_attempts")
@@ -160,3 +191,16 @@ class SkillGap(Base):
     priority_reason = Column(Text)
 
     user = relationship("User", back_populates="skill_gaps")
+
+class AdminAuditLog(Base):
+    __tablename__ = "admin_audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    admin_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    admin_name = Column(String)
+    action = Column(String) # E.g., "FLAG_INTERVENTION", "COURSE_ASSIGNMENT"
+    target_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    target_user_name = Column(String)
+    details = Column(Text)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+

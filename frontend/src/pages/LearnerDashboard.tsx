@@ -70,22 +70,41 @@ export const LearnerDashboard: React.FC<LearnerDashboardProps> = ({ user, onNavi
 
   return (
     <div className="space-y-6 text-left">
-      {/* Top Banner / Learner Header */}
-      <div className="bg-slate-900 text-white rounded-2xl p-6 border border-slate-800 shadow-xl relative overflow-hidden">
-        <div className="absolute -right-10 -bottom-10 w-64 h-64 bg-amber-500/10 rounded-full blur-3xl pointer-events-none"></div>
+      {/* Notification / Reminder Banner (Task 7) */}
+      <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-center justify-between text-xs text-amber-900 shadow-sm">
+        <div className="flex items-center space-x-3">
+          <div className="p-2 bg-amber-500/20 rounded-lg text-amber-800 shrink-0 font-bold">
+            ⚠️ NOTICE
+          </div>
+          <div>
+            <div className="font-bold text-amber-900 text-xs">Action Required: 2 Critical Skill Gaps Pending Review</div>
+            <p className="text-[11px] text-amber-800">
+              Your Cloud Computing (41%) and Data Privacy (48%) scores require upskilling. Deadline for Python iGOT module: 5 days remaining.
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={() => onNavigate('skill-gap')}
+          className="bg-amber-600 hover:bg-amber-700 text-white font-bold px-3 py-1.5 rounded text-xs transition shrink-0 ml-4 shadow-sm"
+        >
+          Resolve Gaps →
+        </button>
+      </div>
 
+      {/* Top Banner / Learner Header */}
+      <div className="bg-slate-900 text-white rounded-lg p-6 border border-slate-800 shadow-sm relative overflow-hidden">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 relative z-10">
           <div className="space-y-2">
             <div className="flex items-center space-x-2">
-              <span className="bg-amber-500/20 text-amber-300 text-xs font-semibold px-2.5 py-0.5 rounded-full border border-amber-500/30">
-                Official Learner Dashboard
+              <span className="bg-blue-900/60 text-blue-300 text-xs font-semibold px-2.5 py-0.5 rounded border border-blue-700 font-mono">
+                Official Learner Portal
               </span>
               <span className="text-slate-400 text-xs font-mono">• ID: EMP-4092</span>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-white">
+            <h1 className="text-2xl font-bold text-white">
               Welcome back, {user.full_name}
             </h1>
-            <p className="text-sm text-slate-300">
+            <p className="text-xs text-slate-300">
               {user.designation} • <strong className="text-white">{user.department?.name || 'Data Analytics Division'}</strong> ({user.experience_years} years exp)
             </p>
             <p className="text-xs text-slate-400">
@@ -94,16 +113,16 @@ export const LearnerDashboard: React.FC<LearnerDashboardProps> = ({ user, onNavi
           </div>
 
           {/* Overall Score Badge */}
-          <div className="bg-slate-800/90 border border-slate-700 p-4 rounded-xl flex items-center space-x-4 min-w-[240px]">
-            <div className="w-14 h-14 rounded-full bg-gradient-to-tr from-amber-500 to-amber-400 flex items-center justify-center text-slate-950 font-black text-xl shadow-lg shadow-amber-500/20">
+          <div className="bg-slate-800 border border-slate-700 p-4 rounded-lg flex items-center space-x-4 min-w-[220px]">
+            <div className="w-12 h-12 rounded-lg bg-blue-700 flex items-center justify-center text-white font-extrabold text-lg border border-blue-600 shadow-sm">
               {compData?.overall_score || user.overall_competency_score}%
             </div>
             <div>
-              <div className="text-xs text-slate-400 font-medium">Overall Competency Score</div>
-              <div className="text-sm font-bold text-emerald-400 flex items-center gap-1">
+              <div className="text-[11px] text-slate-400 font-medium">Overall Competency Score</div>
+              <div className="text-xs font-bold text-emerald-400 flex items-center gap-1">
                 <span>Intermediate Level</span>
               </div>
-              <div className="text-[11px] text-slate-400 mt-0.5">30 Skills Evaluated</div>
+              <div className="text-[11px] text-slate-400">30 Skills Evaluated</div>
             </div>
           </div>
         </div>
